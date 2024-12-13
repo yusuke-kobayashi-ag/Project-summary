@@ -1,0 +1,3 @@
+Subject 1: [Errno 2] No such file or directory: '/s01.bdf'
+Subject 1: [Errno 2] No such file or directory: '/Users/yusukekobayashi/Library/Mobile Documents/com~apple~CloudDocs/研究/Share Files/PythonProjects/Project_Summary/metadata_csv/DEAP_EEG_channels.xlsx'
+Subject 2: [Errno 2] No such file or directory: '/Users/yusukekobayashi/Library/Mobile Documents/com~apple~CloudDocs/研究/Share Files/PythonProjects/Project_Summary/s02.bdf'

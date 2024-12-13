@@ -8,6 +8,16 @@ import os
 import pandas as pd
 from tqdm import tqdm
 
+# 共通の周波数帯域定義を追加
+FREQUENCY_BANDS = {
+    "theta": [4, 8],
+    "alpha": [8, 12],
+    "low_beta": [12, 16],
+    "high_beta": [16, 25],
+    "gamma": [25, 45]
+}
+
+
 def cache_features(func):
     """
     特徴量抽出関数のキャッシュデコレータ（進捗表示付き）
@@ -147,7 +157,7 @@ def bandpower(data, sf, band, window_sec=10, relative=False, window='hann',nover
     if noverlap is None:
         noverlap = nperseg // 2  # 50%オーバーラップをデフォルトに
 
-    freqs, psd = signal.welch(data, sf, nperseg=nperseg, window=window,noverlap=noverlap,detrend='constant')
+    freqs, psd = signal.welch(data, sf, nperseg=nperseg, window=window,noverlap=noverlap,detrend=False)
     
     idx_band = np.logical_and(freqs >= low, freqs <= high)
     bp = np.trapz(psd[idx_band], freqs[idx_band])
@@ -157,19 +167,14 @@ def bandpower(data, sf, band, window_sec=10, relative=False, window='hann',nover
 
     return bp
 
-@cache_features
+
+#@cache_features
 def extract_band_powers_for_1D(eeg_data, fs=128, window_sec=10, relative=False):
     """
     1DCNN用の特徴量抽出
     Returns: (n_trials, features=bands*channels, 1)
     """
-    bands = {
-        "theta": [4, 8],
-        "alpha": [8, 12],
-        "low_beta": [12, 16],
-        "high_beta": [16, 25],
-        "gamma": [25, 45]
-    }
+    bands = FREQUENCY_BANDS
     
     all_trial_features = []
     
@@ -197,13 +202,7 @@ def extract_band_powers_for_1D_segments(eeg_data, fs=128, window_sec=10, relativ
     セグメント分割を行う1DCNN用の特徴量抽出
     Returns: (n_trials, n_segments, bands*channels, 1)
     """
-    bands = {
-        "theta": [4, 8],
-        "alpha": [8, 12],
-        "low_beta": [12, 16],
-        "high_beta": [16, 25],
-        "gamma": [25, 45]
-    }
+    bands = FREQUENCY_BANDS
     
     segment_samples = window_sec * fs
     overlap_samples = overlap_sec * fs
@@ -242,16 +241,10 @@ def extract_band_powers_for_1D_segments(eeg_data, fs=128, window_sec=10, relativ
     
     return features
 
-#@cache_features
+@cache_features
 def extract_band_powers_for_2D_14ch(eeg_data, fs=128, window_sec=10, relative=False, noverlap=None, clipping=False):
 
-    bands = {
-        "theta": [4, 8],
-        "alpha": [8, 12],
-        "low_beta": [12, 16],
-        "high_beta": [16, 30],
-        "gamma": [31, 45],
-    }
+    bands = FREQUENCY_BANDS
     
     # 入力データの順序（これは eeg_data の順序と一致している必要があります）
     input_order = ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4']
@@ -299,13 +292,7 @@ def extract_band_powers_for_2D_14ch(eeg_data, fs=128, window_sec=10, relative=Fa
 
 @cache_features
 def extract_band_powers_for_2D_32ch(eeg_data, fs=128, window_sec=10, relative=False, noverlap=None, clipping=False):
-    bands = {
-        "theta": [4, 8],
-        "alpha": [8, 12],
-        "low_beta": [12, 16],
-        "high_beta": [16, 30],
-        "gamma": [31, 45]
-    }
+    bands = FREQUENCY_BANDS
     
     # 入力データの順序（これは eeg_data の順序と一致している必要があります）
     input_order = ['Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz', 'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz', 'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2']
@@ -359,36 +346,198 @@ def extract_band_powers_for_2D_32ch(eeg_data, fs=128, window_sec=10, relative=Fa
     return combined_features
 
 
+@cache_features
+def extract_band_powers_for_2D_32ch_(eeg_data, fs=128, window_sec=10, relative=False, noverlap=None, clipping=False):
+    bands = FREQUENCY_BANDS  # 5つの周波数帯域
+    
+    # 入力データの順序
+    input_order = ['Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz', 'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz', 'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2']
+    
+    # 電極位置の定義（8x9グリッド）
+    electrode_positions = {
+        'AF3': (0, 2), 'AF4': (0, 6), 'Fp1': (0, 3), 'Fp2': (0, 5),
+        'F7': (1, 0), 'F3': (1, 2), 'Fz': (1, 4), 'F4': (1, 6), 'F8': (1, 8),
+        'FC5': (2, 1), 'FC1': (2, 3), 'FC2': (2, 5), 'FC6': (2, 7),
+        'T7': (3, 0), 'C3': (3, 2), 'Cz': (3, 4), 'C4': (3, 6), 'T8': (3, 8),
+        'CP5': (4, 1), 'CP1': (4, 3), 'CP2': (4, 5), 'CP6': (4, 7),
+        'P7': (5, 0), 'P3': (5, 2), 'Pz': (5, 4), 'P4': (5, 6), 'P8': (5, 8),
+        'PO3': (6, 3), 'PO4': (6, 5),
+        'O1': (7, 3), 'Oz': (7, 4), 'O2': (7, 5)
+    }
+    
+    # 出力配列の初期化 (trials, 8, 9, bands)
+    n_trials = len(eeg_data)
+    features = np.zeros((n_trials, 8, 9, len(bands)))
+    
+    # プログレスバーの設定
+    pbar = tqdm(total=n_trials * len(bands) * len(electrode_positions), 
+                desc="特徴量抽出中")
+    
+    # 各トライアルについて処理
+    for trial_idx, trial in enumerate(eeg_data):
+        # 各周波数帯域について処理
+        for band_idx, band in enumerate(bands.values()):
+            # 各電極について処理
+            for channel in input_order:
+                if channel in electrode_positions:
+                    channel_idx = input_order.index(channel)
+                    power = bandpower(trial[channel_idx], fs, band, 
+                                    window_sec=window_sec, 
+                                    relative=relative, 
+                                    noverlap=noverlap)
+                    i, j = electrode_positions[channel]
+                    features[trial_idx, i, j, band_idx] = power
+                    pbar.update(1)
+    
+    pbar.close()
+    
+    if clipping:
+        print("外れ値の除去を実行中...")
+        # 外れ値の除去
+        clip_value = np.percentile(features, 99)
+        features = np.clip(features, None, clip_value)
+        
+        lower_clip = np.percentile(features, 1)
+        features = np.clip(features, lower_clip, None)
+    print(f"特徴量の形状: {features.shape}")
+    return features
+
+@cache_features
+def extract_band_powers_for_2D_2ch(eeg_data, fs=128, window_sec=10, relative=False, noverlap=None, clipping=False):
+    bands = FREQUENCY_BANDS
+    
+    # 入力データの順序（これは eeg_data の順序と一致している必要があります）
+    input_order = ['Fp1', 'Fp2']
+    
+    # 32チャンネルの異なる順序
+    channel_orders = [
+        # 前頭部から後頭部への配置
+        ['Fp1', 'Fp2'],  
+    ]
+    
+    all_features = []
+    
+    for order in channel_orders:
+        features = []
+        for trial in eeg_data:
+            trial_features = []
+            for band in bands.values():
+                band_features = []
+                for channel in order:
+                    channel_idx = input_order.index(channel)  # 入力データの順序に基づいてインデックスを取得
+                    band_features.append(bandpower(trial[channel_idx], fs, band, window_sec=window_sec, relative=relative, noverlap=noverlap))
+                trial_features.append(band_features)
+            features.append(trial_features)
+        
+        features = np.array(features)
+        features = features.reshape(features.shape[0], 5, 2, 1)
+        all_features.append(features)
+    
+    # 3つの特徴量を結合して (none, 5, 14, 3) の形状にする
+    combined_features = np.concatenate(all_features, axis=3)
+    
+    if clipping:
+        # 外れ値の除去
+        # 99パーセンタイルでクリッピング
+        clip_value = np.percentile(combined_features, 99)
+        combined_features = np.clip(combined_features, None, clip_value)
+        
+        # 1パーセンタイルでクリッピング
+        lower_clip = np.percentile(combined_features, 1)
+        combined_features = np.clip(combined_features, lower_clip, None)
+    
+    return combined_features
+
+@cache_features
+def extract_temporal_band_powers(eeg_data, fs=128, window_sec=2, step_sec=1, relative=False, noverlap=None):
+    """
+    時系列を考慮した特徴量抽出
+    Returns: (n_trials, n_timesteps, n_bands, n_channels, n_views)
+    
+    Parameters:
+    -----------
+    eeg_data : numpy.ndarray
+        入力EEGデータ (n_trials, n_channels, n_samples)
+    fs : int
+        サンプリング周波数
+    window_sec : float
+        各時間窓の長さ（秒）
+    step_sec : float
+        時間窓のスライド幅（秒）
+    relative : bool
+        相対パワーを計算するかどうか
+    noverlap : int
+        バンドパワー計算時のオーバーラップ
+    """
+    bands = FREQUENCY_BANDS
+    
+    # 時間窓のサンプル数を計算
+    window_samples = int(window_sec * fs)
+    step_samples = int(step_sec * fs)
+    
+    all_trial_features = []
+    
+    for trial in tqdm(eeg_data, desc="Processing trials"):
+        trial_length = trial.shape[1]
+        n_steps = (trial_length - window_samples) // step_samples + 1
+        
+        timestep_features = []
+        for step in range(n_steps):
+            start_idx = step * step_samples
+            end_idx = start_idx + window_samples
+            
+            if end_idx > trial_length:
+                break
+                
+            window = trial[:, start_idx:end_idx]
+            
+            # 各時間窓でバンドパワーを計算
+            band_features = []
+            for band_name, band_range in bands.items():
+                channel_features = []
+                for ch in range(trial.shape[0]):
+                    power = bandpower(window[ch], fs, band_range,
+                                   window_sec=window_sec,
+                                   relative=relative,
+                                   noverlap=noverlap)
+                    channel_features.append(power)
+                band_features.append(channel_features)
+            
+            timestep_features.append(band_features)
+        
+        all_trial_features.append(timestep_features)
+    
+    # (n_trials, n_timesteps, n_bands, n_channels, 1)の形状に変換
+    features = np.array(all_trial_features)[..., np.newaxis]
+    
+    return features
+
+
 def convert_log_features(features):
     """
-    特徴量の標準化と対数変換を行う関数
+    0値はそのままで、それ以外の値をlog変換する
     
     Parameters:
     -----------
     features : numpy.ndarray
-        標準化する特徴量
-        - 1DCNN: (n_trials, time_steps, channels)
-        - 2DCNN (従来): (n_trials, bands=5, channels, views=2)
-        - 2DCNN (セグメント): (n_trials, n_segments, features, channels, views)
-    model_type : str
-        モデルタイプ ('1DCNN' or '2DCNN')
-    log_transform : bool
-        対数変換を適用するかどうか
+        入力特徴量
     
     Returns:
     --------
-    numpy.ndarray : 標準化された特徴量（入力と同じ形状）
+    numpy.ndarray
+        変換後の特徴量
     """
-   
-    # log変換の前に、全体の最小値を確認して適切なオフセットを追加
-    min_val = np.min(features)
-    if min_val <= 0:
-        offset = abs(min_val) + 1e-10
-        features = features + offset
-    features = np.log(features)
-
-    original_shape = features.shape
-    features = features.reshape(original_shape)
-
-    return features
-
+    # 0値のマスクを作成
+    zero_mask = (features == 0)
+    
+    # 非0値のみlog変換
+    log_features = np.zeros_like(features)
+    log_features[~zero_mask] = np.log(features[~zero_mask])
+    
+    print("Log変換後の特徴量の統計:")
+    print(f"0値の数: {zero_mask.sum()}")
+    print(f"非0値の数: {(~zero_mask).sum()}")
+    print(f"Min (非0値): {log_features[~zero_mask].min():.2f}")
+    print(f"Max (非0値): {log_features[~zero_mask].max():.2f}")
+    
+    return log_features

@@ -25,6 +25,7 @@ os.makedirs('./results/14ch_1DCNN_gauss/distributions', exist_ok=True)
 os.makedirs('./results/14ch_1DCNN_gauss/models', exist_ok=True)
 os.makedirs('./results/14ch_1DCNN_gauss/evaluation', exist_ok=True)
 os.makedirs('./results/14ch_1DCNN_gauss/residual', exist_ok=True)
+os.makedirs('./results/14ch_1DCNN_gauss/training_history', exist_ok=True)
 
 def create_model(input_shape, sigma):
     inputs = layers.Input(shape=input_shape)
@@ -120,11 +121,23 @@ def oversample_extreme_values(X, y, threshold=0.7, multiplier=3, noise_level=0.0
     
     return X_balanced, y_balanced
 
+def plot_training_history(history, model_type, save_dir):
+    plt.figure(figsize=(10, 4))
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title(f'{model_type} Training History')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f'{save_dir}/training_history_{model_type}.png')
+    plt.close()
+
 # メインの実行部分
 if __name__ == "__main__":
     # データの準備
     person_ids = range(1,33)
-    selected_channels = ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4']
+    selected_channels = ['Fp1','Fp2']
     X, y = make_data_set(
         person_ids=person_ids, 
         model_type='1DCNN',
@@ -134,7 +147,8 @@ if __name__ == "__main__":
         log_transform=True,
         use_segments=False,  # セグメント化を有効化
         overlap_sec=5,
-        plot_distributions=True
+        plot_distributions=True,
+        gauss = True
     )
 
     print("Data shape:", X.shape)
@@ -145,8 +159,12 @@ if __name__ == "__main__":
     print("Xの最小値:", np.min(X), "Xの最大値", np.max(X), "Xの平均", np.mean(X))
 
     # データの分割
-    X_train, X_test, y_train, y_test = train_test_split(
+    X_temp, X_test, y_temp, y_test = train_test_split(
         X, y, test_size=0.1, random_state=7
+    )
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp, y_temp, test_size=0.1, random_state=7
     )
 
     # 訓練データのみでスケーラーを学習
@@ -156,10 +174,12 @@ if __name__ == "__main__":
 
     # 訓練データとテストデータそれぞれを変換
     X_train_scaled = scaler.transform(X_train_reshaped)
+    X_val_scaled = scaler.transform(X_val.reshape(X_val.shape[0], -1))
     X_test_scaled = scaler.transform(X_test.reshape(X_test.shape[0], -1))
 
     # 元の形状に戻す
     X_train = X_train_scaled.reshape(X_train.shape)
+    X_val = X_val_scaled.reshape(X_val.shape)
     X_test = X_test_scaled.reshape(X_test.shape)
 
     # オーバーサンプリング
@@ -192,7 +212,7 @@ if __name__ == "__main__":
         X_train, y_train[:, 0],
         epochs=total_epochs,
         batch_size=batch_size,
-        validation_data=(X_test, y_test[:, 0]),
+        validation_data=(X_val, y_val[:, 0]),
         callbacks=callbacks,
         verbose=1
     )
@@ -208,7 +228,7 @@ if __name__ == "__main__":
         X_train, y_train[:, 1],
         epochs=total_epochs,
         batch_size=batch_size,
-        validation_data=(X_test, y_test[:, 1]),
+        validation_data=(X_val, y_val[:, 1]),
         callbacks=callbacks,
         verbose=1
     )
@@ -268,6 +288,9 @@ if __name__ == "__main__":
             arousal_results['R^2']
         ]
     })
+
+    plot_training_history(valence_history, 'Valence', './results/14ch_1DCNN_gauss/training_history')
+    plot_training_history(arousal_history, 'Arousal', './results/14ch_1DCNN_gauss/training_history')
 
     # 結果の保存
     results_df.to_csv(f'./results/14ch_1DCNN_gauss/evaluation/neuron{n_neurons}_sigma{sigma}_results.csv', index=False)

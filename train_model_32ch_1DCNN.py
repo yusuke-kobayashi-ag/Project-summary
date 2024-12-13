@@ -22,6 +22,7 @@ os.makedirs('./results/32ch_1DCNN/distributions', exist_ok=True)
 os.makedirs('./results/32ch_1DCNN/models', exist_ok=True)
 os.makedirs('./results/32ch_1DCNN/evaluation', exist_ok=True)
 os.makedirs('./results/32ch_1DCNN/residual', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN/training_history', exist_ok=True)
 
 def create_model(input_shape):
     inputs = layers.Input(shape=input_shape)
@@ -39,9 +40,9 @@ def create_model(input_shape):
     
     x = layers.Flatten()(x)
     x = layers.Dense(128, activation="tanh")(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(0.1)(x)
     x = layers.Dense(64, activation="tanh")(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(0.1)(x)
     output = layers.Dense(1)(x)
     
     model = models.Model(inputs=inputs, outputs=output)
@@ -86,6 +87,18 @@ def oversample_extreme_values(X, y, threshold=0.7, multiplier=3, noise_level=0.0
     
     return X_balanced, y_balanced
 
+def plot_training_history(history, model_type, save_dir):
+    plt.figure(figsize=(10, 4))
+    plt.plot(history.history['loss'], label='Training Loss')
+    plt.plot(history.history['val_loss'], label='Validation Loss')
+    plt.title(f'{model_type} Training History')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f'{save_dir}/training_history_{model_type}.png')
+    plt.close()
+
 # メインの実行部分
 if __name__ == "__main__":
     # データの準備
@@ -100,7 +113,8 @@ if __name__ == "__main__":
         log_transform=True,
         use_segments=False,  # セグメント化を有効化
         overlap_sec=5,
-        plot_distributions=True
+        plot_distributions=True,
+        gauss = False
     )
 
 
@@ -111,23 +125,30 @@ if __name__ == "__main__":
     print("Arousalの範囲:", np.min(y[:, 1]), "から", np.max(y[:, 1]))
     print("Xの最小値:", np.min(X), "Xの最大値", np.max(X), "Xの平均", np.mean(X))
 
-    # データの分割
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.1, random_state=7
+    X_temp, X_test, y_temp, y_test = train_test_split(
+        X, y, test_size=0.1, random_state=42
     )
-
-    # 訓練データのみでスケーラーを学習
+    
+    # 残りのデータから検証データを20%分割（全体の16%）
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp, y_temp, test_size=0.1, random_state=42
+    )
+    
+    # スケーリングは訓練データのみで学習
     scaler = StandardScaler()
     X_train_reshaped = X_train.reshape(X_train.shape[0], -1)
     scaler.fit(X_train_reshaped)
 
-    # 訓練データとテストデータそれぞれを変換
+    # 3つのデータセットそれぞれを変換
     X_train_scaled = scaler.transform(X_train_reshaped)
+    X_val_scaled = scaler.transform(X_val.reshape(X_val.shape[0], -1))
     X_test_scaled = scaler.transform(X_test.reshape(X_test.shape[0], -1))
 
     # 元の形状に戻す
     X_train = X_train_scaled.reshape(X_train.shape)
+    X_val = X_val_scaled.reshape(X_val.shape)
     X_test = X_test_scaled.reshape(X_test.shape)
+
     # データ分布の可視化
     plt.figure(figsize=(8, 8))
     plt.scatter(y_train[:, 0], y_train[:, 1], alpha=0.5)
@@ -146,8 +167,8 @@ if __name__ == "__main__":
 
     # コールバックの設定
     callbacks = [
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=30, min_lr=1e-6, verbose=1),
-        EarlyStopping(monitor='val_loss', patience=80, restore_best_weights=True, verbose=1)
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6, verbose=1),
+        EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, verbose=1)
     ]
 
     # Valenceモデルの学習
@@ -155,15 +176,15 @@ if __name__ == "__main__":
         X_train, y_train[:, 0],
         epochs=total_epochs,
         batch_size=batch_size,
-        validation_data=(X_test, y_test[:, 0]),
+        validation_data=(X_val, y_val[:, 0]),
         callbacks=callbacks,
         verbose=1
     )
 
     # コールバックの設定
     callbacks = [
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=30, min_lr=1e-6, verbose=1),
-        EarlyStopping(monitor='val_loss', patience=80, restore_best_weights=True, verbose=1)
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-6, verbose=1),
+        EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True, verbose=1)
     ]
 
     # Arousalモデルの学習
@@ -171,7 +192,7 @@ if __name__ == "__main__":
         X_train, y_train[:, 1],
         epochs=total_epochs,
         batch_size=batch_size,
-        validation_data=(X_test, y_test[:, 1]),
+        validation_data=(X_val, y_val[:, 1]),
         callbacks=callbacks,
         verbose=1
     )
@@ -233,6 +254,9 @@ if __name__ == "__main__":
             arousal_results['R^2']
         ]
     })
+
+    plot_training_history(valence_history, 'Valence', './results/32ch_1DCNN/training_history')
+    plot_training_history(arousal_history, 'Arousal', './results/32ch_1DCNN/training_history')
 
     # 結果の保存
     results_df.to_csv('./results/32ch_1DCNN/evaluation/results.csv', index=False)

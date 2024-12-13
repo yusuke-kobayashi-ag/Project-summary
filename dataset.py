@@ -7,10 +7,13 @@ from feature_extraction import (
     extract_band_powers_for_2D_32ch,
     extract_band_powers_for_1D_segments,
     convert_log_features,
-    plot_feature_distributions
+    plot_feature_distributions,
+    extract_temporal_band_powers,
+    extract_band_powers_for_2D_2ch
 )
+from feature_extraction import FREQUENCY_BANDS
 
-def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, window_sec=10, relative=False, noverlap=None, selected_channels=None,use_segments=False, overlap_sec=5, plot_distributions=True):
+def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, window_sec=10, relative=False, noverlap=None, selected_channels=None,use_segments=False, overlap_sec=5, plot_distributions=True, gauss=False,clipping=False):
     """
     データセットを作成する関数
     
@@ -54,6 +57,15 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
     y_combined = np.concatenate(y_all, axis=0)
     y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
 
+    # 周波数帯域の分析を実行
+    print("周波数帯域の分析を実行中...")
+    save_dir = f'./results/{"32ch" if len(selected_channels)==32 else "14ch"}_{model_type}'
+    if use_segments:
+        save_dir += '_segment'
+    if gauss:
+        save_dir += '_gauss'
+    save_dir += '/frequency_analysis'
+
     print("特徴量の計算...")
     if use_segments:
         if model_type == '1DCNN':
@@ -62,14 +74,15 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
                 fs=fs,
                 window_sec=window_sec,
                 overlap_sec=overlap_sec,
-                relative=relative
+                relative=relative,
+                selected_channels = selected_channels
             )
             print("セグメント化1DCNN特徴量を計算")
     else:
         # 従来の特徴量抽出処理
         if model_type == '1DCNN':
             band_power_features = extract_band_powers_for_1D(
-                X_combined, fs=fs, window_sec=window_sec, relative=relative
+                X_combined, fs=fs, window_sec=window_sec, relative=relative,
             )
         elif model_type == '2DCNN':
             if len(selected_channels) == 14:
@@ -77,15 +90,23 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
                     X_combined, fs=fs, window_sec=window_sec,
                     relative=relative, noverlap=noverlap
                 )
-            else:  # 32チャンネル
+            elif len(selected_channels) == 32:  # 32チャンネル
                 band_power_features = extract_band_powers_for_2D_32ch(
                     X_combined, fs=fs, window_sec=window_sec,
-                    relative=relative, noverlap=noverlap
+                    relative=relative, noverlap=noverlap,clipping=clipping
                 )
+            else:
+                band_power_features = extract_band_powers_for_2D_2ch(
+                    X_combined, fs=fs, window_sec=window_sec,
+                    relative=relative, noverlap=noverlap,clipping=clipping
+                )
+
     if plot_distributions:
         save_dir = f'./results/{"32ch" if len(selected_channels)==32 else "14ch"}_{model_type}'
         if use_segments:
             save_dir += '_segment'
+        if gauss:
+            save_dir += '_gauss'
         save_dir += '/feature_distributions'
         print(f"{save_dir}に統計情報が保存されました。")
         
@@ -108,3 +129,80 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
     print(f"labels_shape:{y_combined.shape}")
 
     return band_power_features, y_combined
+
+def make_temporal_dataset(person_ids, window_sec=2, step_sec=1, fs=128, relative=False, 
+                         selected_channels=None, log_transform=True, plot_distributions=True):
+    """
+    時系列モデル用のデータセット作成関数
+    
+    Parameters:
+    -----------
+    person_ids : list
+        処理する被験者のID
+    window_sec : float
+        各時間窓の長さ（秒）
+    step_sec : float
+        時間窓のスライド幅（秒）
+    fs : int
+        サンプリング周波数
+    relative : bool
+        相対バンドパワーを使用するかどうか
+    selected_channels : list or None
+        使用するチャンネルのリスト
+    log_transform : bool
+        特徴量に対数変換を適用するかどうか
+    plot_distributions : bool
+        特徴量の分布を可視化するかどうか
+    
+    Returns:
+    --------
+    features : ndarray
+        形状: (n_trials, n_timesteps, n_bands, n_channels, n_views)
+    labels : ndarray
+        形状: (n_trials, 2) [valence, arousal]
+    """
+    # データの読み込み
+    file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+    X_all = []
+    y_all = []
+
+    for file_path in file_paths:
+        print(f'{file_path}を処理中...')
+        X, y, channels = load_deap_data_npy(file_path, selected_channels=selected_channels)
+        X_all.append(X)
+        y_all.append(y)
+
+    X_combined = np.concatenate(X_all, axis=0)
+    y_combined = np.concatenate(y_all, axis=0)
+    y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+
+    # 時系列特徴量の抽出
+    print("時系列特徴量の抽出中...")
+    features = extract_temporal_band_powers(
+        X_combined,
+        fs=fs,
+        window_sec=window_sec,
+        step_sec=step_sec,
+        relative=relative
+    )
+
+    if plot_distributions:
+        save_dir = './results/temporal_model/feature_distributions'
+        print(f"{save_dir}に統計情報が保存されます")
+        stats = plot_feature_distributions(
+            features,
+            model_type='temporal',
+            save_dir=save_dir
+        )
+        print("分布の統計情報:")
+        print(stats)
+
+    if log_transform:
+        print("特徴量のlog変換...")
+        features = convert_log_features(features)
+
+    print(f"features_shape:{features.shape}")
+    print(f"labels_shape:{y_combined.shape}")
+
+    return features, y_combined
+

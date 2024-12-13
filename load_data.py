@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 
+DEAP_EEG_CHANNELS = [
+        'Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz', 'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz', 'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2'
+    ]
+
 def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
     """
     Parameters:
@@ -16,7 +20,6 @@ def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
     DEAP_EEG_CHANNELS = [
         'Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz', 'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz', 'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2'
     ]
-
     # データ読み込み
     data = np.load(file_path)
     data = data.copy()
@@ -31,7 +34,7 @@ def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
         used_channels = DEAP_EEG_CHANNELS
 
     baseline_samples = int(5 * 128)  # 5秒 × 128 Hz
-    
+    """
     # EEG前処理
     if preprocessing == 'eeg':
         # 試行ごとに処理
@@ -52,7 +55,7 @@ def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
                 #std = np.std(signal)
                 #if std != 0:
                     #selected_data[trial, channel, :] = signal / std
-    
+    """
     # ベースライン期間の除去（必須処理）
     selected_data = selected_data[:, :, baseline_samples:]
         
