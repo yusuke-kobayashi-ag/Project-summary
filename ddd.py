@@ -17,7 +17,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # または '2'
 # グローバル変数の定義
 n_neurons = 10
 sigma = 0.25
-total_epochs = 40
+total_epochs = 1000
 batch_size = 64
 
 # ディレクトリの作成
@@ -32,7 +32,11 @@ def create_model(input_shape, sigma):
     inputs = layers.Input(shape=input_shape)
     
     # Conv部分の改善
-    x = layers.Conv2D(32, (2,2), padding='same')(inputs)
+    x = layers.Conv2D(20, (1,2), padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('tanh')(x)  # tanhから変更
+    x = layers.Dropout(0.1)(x)
+    x = layers.Conv2D(20, (1,2), padding='same')(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('tanh')(x)  # tanhから変更
     x = layers.Dropout(0.1)(x)
@@ -138,17 +142,6 @@ def plot_training_history(history, model_type, save_dir):
 
 # メインの実行部分
 if __name__ == "__main__":
-    def plot_training_history(history, model_type, save_dir):
-        plt.figure(figsize=(10, 4))
-        plt.plot(history.history['loss'], label='Training Loss')
-        plt.plot(history.history['val_loss'], label='Validation Loss')
-        plt.title(f'{model_type} Training History')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig(f'{save_dir}/training_history_{model_type}.png')
-        plt.close()
     # データの準備
     person_ids = range(1,33)
     selected_channels = ['Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz', 'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz', 'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2']
@@ -169,22 +162,17 @@ if __name__ == "__main__":
     
     )
 
-    # データ分割
-    X_temp, X_test, y_temp, y_test = train_test_split(
-        X, y, test_size=0.1, random_state=77
-    )
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_temp, y_temp, test_size=0.1, random_state=77
-    )
+    # データ分割部分を以下に変更
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.05,random_state=77)
 
-    # スケーリング
+    # スケーリング部分を簡略化
     scaler = StandardScaler()
     X_train_reshaped = X_train.reshape(X_train.shape[0], -1)
     scaler.fit(X_train_reshaped)
-    
+
     X_train = scaler.transform(X_train_reshaped).reshape(X_train.shape)
     X_val = scaler.transform(X_val.reshape(X_val.shape[0], -1)).reshape(X_val.shape)
-    X_test = scaler.transform(X_test.reshape(X_test.shape[0], -1)).reshape(X_test.shape)
+
 
     # 検証データの保存
     save_dir = './results/32ch_2DCNN_gauss/validation_data'
@@ -229,25 +217,26 @@ if __name__ == "__main__":
         verbose=1
     )
 
-    # 予測と評価
+    # 評価部分を以下に変更
     valence_pred_dist = valence_model.predict(X_val)
     arousal_pred_dist = arousal_model.predict(X_val)
 
     valence_predictions = decode_prediction(valence_pred_dist)
     arousal_predictions = decode_prediction(arousal_pred_dist)
 
-    #valence_results = evaluate_regression(y_test[:, 0], valence_predictions)
-    #arousal_results = evaluate_regression(y_test[:, 1], arousal_predictions)
+    valence_results = evaluate_regression(y_val[:, 0], valence_predictions)
+    arousal_results = evaluate_regression(y_val[:, 1], arousal_predictions)
 
     # 残差プロット
+    # 残差プロット部分を修正
     plt.figure(figsize=(10, 5))
-    
+
     plt.subplot(1, 2, 1)
     plt.scatter(y_val[:, 0], valence_predictions, alpha=0.5)
     plt.plot([-1, 1], [-1, 1], 'r--')
     plt.xlabel('True Valence')
     plt.ylabel('Predicted Valence')
-    plt.title('Valence: True vs Predicted')
+    plt.title('Valence: True vs Predicted (Validation)')
     plt.grid(True, alpha=0.3)
     plt.axis([-1, 1, -1, 1])
 
@@ -256,18 +245,18 @@ if __name__ == "__main__":
     plt.plot([-1, 1], [-1, 1], 'r--')
     plt.xlabel('True Arousal')
     plt.ylabel('Predicted Arousal')
-    plt.title('Arousal: True vs Predicted')
+    plt.title('Arousal: True vs Predicted (Validation)')
     plt.grid(True, alpha=0.3)
     plt.axis([-1, 1, -1, 1])
 
     plt.tight_layout()
-    plt.savefig(f'./results/32ch_2DCNN_gauss/residual/neuron{n_neurons}_sigma{sigma}_residual_plots.png')
+    plt.savefig(f'./results/32ch_2DCNN_gauss/residual/neuron{n_neurons}_sigma{sigma}_validation_plots.png')
     plt.close()
 
     # モデルの保存
     valence_model.save(f'./results/32ch_2DCNN_gauss/models/neuron{n_neurons}_sigma{sigma}_valence_model.keras')
     arousal_model.save(f'./results/32ch_2DCNN_gauss/models/neuron{n_neurons}_sigma{sigma}_arousal_model.keras')
-    """
+
     # 結果をDataFrameに保存
     results_df = pd.DataFrame({
         'Metric': ['MSE', 'RMSE', 'MAE', 'R^2'],
@@ -284,10 +273,10 @@ if __name__ == "__main__":
             arousal_results['R^2']
         ]
     })
-    """
+
     # 結果の保存
-    #results_df.to_csv(f'./results/32ch_2DCNN_gauss/evaluation/neuron{n_neurons}_sigma{sigma}_results.csv', index=False)
-    """
+    results_df.to_csv(f'./results/32ch_2DCNN_gauss/evaluation/neuron{n_neurons}_sigma{sigma}_results.csv', index=False)
+
     # 結果の出力
     print("\n=== Final Results ===")
     print("\nValence Results:")
@@ -297,7 +286,7 @@ if __name__ == "__main__":
     print("\nArousal Results:")
     for metric, value in arousal_results.items():
         print(f"{metric}: {value:.4f}")
-    """
+
     print("\nTraining and evaluation completed.")
     plot_training_history(valence_history, 'Valence', './results/32ch_2DCNN_gauss')
     plot_training_history(arousal_history, 'Arousal', './results/32ch_2DCNN_gauss')

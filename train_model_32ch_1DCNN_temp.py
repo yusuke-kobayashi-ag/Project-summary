@@ -38,47 +38,38 @@ batch_size = 256
 
 
 # ディレクトリの作成
-os.makedirs('./results/32ch_2DCNN_gauss_temp4/distributions', exist_ok=True)
-os.makedirs('./results/32ch_2DCNN_gauss_temp4/models', exist_ok=True)
-os.makedirs('./results/32ch_2DCNN_gauss_temp4/evaluation', exist_ok=True)
-os.makedirs('./results/32ch_2DCNN_gauss_temp4/residual', exist_ok=True)
-os.makedirs('./results/32ch_2DCNN_gauss_temp4/training_history', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN_gauss_temp/distributions', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN_gauss_temp/models', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN_gauss_temp/evaluation', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN_gauss_temp/residual', exist_ok=True)
+os.makedirs('./results/32ch_1DCNN_gauss_temp/training_history', exist_ok=True)
 
 def create_model(input_shape):
     inputs = layers.Input(shape=input_shape)
     
     # Conv部分
-    x = layers.ConvLSTM2D(32, (3,3), padding='same', 
+    x = layers.ConvLSTM1D(32, 3, padding='same', 
                          kernel_regularizer=regularizers.l2(0.01),
                          return_sequences=True
                          )(inputs)
     x = layers.BatchNormalization()(x)
     x = layers.Activation('relu')(x)
     #x = layers.Dropout(0.1)(x)
-    x = layers.MaxPooling3D((1,1,2))(x)
-    # Conv部分
-    x = layers.ConvLSTM2D(64, (3,3), padding='same', 
-                         kernel_regularizer=regularizers.l2(0.01),
-                         return_sequences=True
-                         )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    #x = layers.Dropout(0.1)(x)
-    x = layers.MaxPooling3D((1,1,2))(x)
-    
-    # Conv部分
-    x = layers.ConvLSTM2D(128, (3,3), padding='same', 
-                         kernel_regularizer=regularizers.l2(0.01),
-                         )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    #x = layers.Dropout(0.1)(x)
     x = layers.MaxPooling2D((1,2))(x)
+    # Conv部分
+    x = layers.ConvLSTM1D(64, 4, padding='same', 
+                         kernel_regularizer=regularizers.l2(0.01),
+
+                         )(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+    #x = layers.Dropout(0.1)(x)
+    x = layers.MaxPooling1D(2)(x)
 
     x = layers.Flatten()(x)
     
     # Dense部分
-    x = layers.Dense(256, 
+    x = layers.Dense(128, 
                      kernel_regularizer=regularizers.l2(0.01)
                      )(x)
     x = layers.BatchNormalization()(x)
@@ -113,7 +104,7 @@ def evaluate_regression(y_true, y_pred):
 
 
 
-def oversample_extreme_values(X, y, threshold=0, multiplier=3, noise_scale=0.1):
+def oversample_extreme_values_(X, y, threshold=0, multiplier=3, noise_scale=0.1):
     # 極値のインデックスを取得
     extreme_indices_valence = np.where(np.abs(y[:, 0]) >= threshold)[0]
     extreme_indices_arousal = np.where(np.abs(y[:, 1]) >= threshold)[0]
@@ -236,7 +227,7 @@ def oversample_extreme_values_2d(X, y, epochs=100, batch_size=32, latent_dim=100
     best_generator_weights = None
     history = {'d_loss': [], 'g_loss': []}
 
-    # 学習ループ内の判断基準を修正
+    # 学習ループ
     for epoch in range(epochs):
         idx = np.random.randint(0, X.shape[0], batch_size)
         real_samples = X[idx]
@@ -247,10 +238,10 @@ def oversample_extreme_values_2d(X, y, epochs=100, batch_size=32, latent_dim=100
         history['d_loss'].append(float(d_loss))
         history['g_loss'].append(float(g_loss))
         
-        # Early Stopping判定 - より緩やかな基準に
+        # Early Stopping判定
         current_combined_loss = float(g_loss + d_loss)
         
-        if current_combined_loss < best_combined_loss - 0.005:  # より小さな改善でも保存
+        if current_combined_loss < best_combined_loss - 0.01:
             best_combined_loss = current_combined_loss
             patience_counter = 0
             best_generator_weights = generator.get_weights()
@@ -260,15 +251,173 @@ def oversample_extreme_values_2d(X, y, epochs=100, batch_size=32, latent_dim=100
         if epoch % 10 == 0:
             print(f"Epoch {epoch}, D Loss: {d_loss:.4f}, G Loss: {g_loss:.4f}")
         
-        # Early Stopping条件 - より長い忍耐
-        if patience_counter >= 100:  # より長く待つ
+        # Early Stopping条件をチェック
+        if patience_counter >= 50:
             print(f"\nEarly stopping triggered at epoch {epoch}")
             print(f"Best combined loss: {best_combined_loss:.4f}")
             generator.set_weights(best_generator_weights)
             break
         
-        # Mode collapseの検出 - より適切な範囲に
-        if float(d_loss) < 0.3 or float(g_loss) > 1.5:  # より現実的な基準
+        # Mode collapseの検出
+        if float(d_loss) < 0.1 or float(g_loss) > 2.0:
+            print(f"\nPossible mode collapse detected at epoch {epoch}")
+            print(f"Reverting to best weights")
+            generator.set_weights(best_generator_weights)
+            break
+
+    # 学習の要約を表示
+    print("\nTraining Summary:")
+    print(f"Total epochs: {epoch + 1}")
+    print(f"Final D Loss: {d_loss:.4f}, G Loss: {g_loss:.4f}")
+    print(f"Best combined loss: {best_combined_loss:.4f}")
+
+    # 最良の重みがある場合は使用
+    if best_generator_weights is not None:
+        generator.set_weights(best_generator_weights)
+
+    # データ生成
+    n_generate = int(3*len(X))
+    noise = np.random.normal(0, 1, (n_generate, latent_dim))
+    n_repeats = int(np.ceil(n_generate / len(y)))
+    y_repeated = np.tile(y, (n_repeats, 1))[:n_generate]
+    
+    gen_input = np.concatenate([noise, y_repeated], axis=1)
+    generated_samples = generator.predict(gen_input)
+    
+    # データの結合とシャッフル
+    X_balanced = np.concatenate([X, generated_samples], axis=0)
+    y_balanced = np.concatenate([y, y_repeated], axis=0)
+    
+    indices = np.random.permutation(len(X_balanced))
+    X_balanced = X_balanced[indices]
+    y_balanced = y_balanced[indices]
+    
+    print(f"Original data shape: {X.shape}")
+    print(f"Balanced data shape: {X_balanced.shape}")
+    print(f"Generated samples: {n_generate}")
+    
+    return X_balanced, y_balanced
+
+def oversample_extreme_values_1D(X, y, epochs=100, batch_size=32, latent_dim=100):
+    """
+    1D形式のデータに対応したGANによるオーバーサンプリング関数
+    
+    Args:
+        X: 入力データ (n_samples, n_timesteps, n_features, 1)
+        y: ラベル
+        epochs: 最大エポック数
+        batch_size: バッチサイズ
+        latent_dim: 潜在空間の次元
+    """
+    X = X.astype('float32')
+    y = y.astype('float32')
+    timesteps = X.shape[1]
+    n_features = X.shape[2]
+
+    # Generator
+    gen_input = layers.Input(shape=(latent_dim + 2,))
+    x = layers.Dense(timesteps * n_features * 4)(gen_input)
+    x = layers.Reshape((timesteps, n_features, 4))(x)
+    
+    x = layers.Conv2D(64, (3, 3), padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.LeakyReLU(0.2)(x)
+    
+    x = layers.Conv2D(32, (3, 3), padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.LeakyReLU(0.2)(x)
+    
+    gen_output = layers.Conv2D(1, (3, 3), padding='same', activation='tanh')(x)
+    generator = models.Model(gen_input, gen_output)
+
+    # Discriminator
+    disc_input = layers.Input(shape=(timesteps, n_features, 1))
+    
+    x = layers.Conv2D(32, (3, 3), padding='same')(disc_input)
+    x = layers.LeakyReLU(0.2)(x)
+    x = layers.Dropout(0.3)(x)
+    
+    x = layers.Conv2D(64, (3, 3), padding='same')(x)
+    x = layers.LeakyReLU(0.2)(x)
+    x = layers.Dropout(0.3)(x)
+    
+    x = layers.Conv2D(32, (3, 3), padding='same')(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(64)(x)
+    x = layers.LeakyReLU(0.2)(x)
+    disc_output = layers.Dense(1, activation='sigmoid')(x)
+    discriminator = models.Model(disc_input, disc_output)
+
+    # オプティマイザ
+    d_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
+    g_optimizer = tf.keras.optimizers.Adam(learning_rate=0.0002, beta_1=0.5)
+    
+    # 損失関数
+    cross_entropy = tf.keras.losses.BinaryCrossentropy()
+
+    @tf.function
+    def train_step(real_samples, real_labels):
+        noise = tf.random.normal([batch_size, latent_dim], dtype=tf.float32)
+        gen_input = tf.concat([noise, real_labels], axis=1)
+        
+        with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            generated_samples = generator(gen_input, training=True)
+            
+            real_output = discriminator(real_samples, training=True)
+            fake_output = discriminator(generated_samples, training=True)
+            
+            gen_loss = cross_entropy(tf.ones_like(fake_output), fake_output)
+            real_loss = cross_entropy(tf.ones_like(real_output), real_output)
+            fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
+            disc_loss = real_loss + fake_loss
+            
+        gen_gradients = gen_tape.gradient(gen_loss, generator.trainable_variables)
+        disc_gradients = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+        
+        g_optimizer.apply_gradients(zip(gen_gradients, generator.trainable_variables))
+        d_optimizer.apply_gradients(zip(disc_gradients, discriminator.trainable_variables))
+        
+        return gen_loss, disc_loss
+
+    # 学習状態の監視用変数
+    best_combined_loss = float('inf')
+    patience_counter = 0
+    best_generator_weights = None
+    history = {'d_loss': [], 'g_loss': []}
+
+    # 学習ループ
+    for epoch in range(epochs):
+        idx = np.random.randint(0, X.shape[0], batch_size)
+        real_samples = X[idx]
+        real_labels = y[idx]
+        
+        g_loss, d_loss = train_step(real_samples, real_labels)
+        
+        history['d_loss'].append(float(d_loss))
+        history['g_loss'].append(float(g_loss))
+        
+        # Early Stopping判定
+        current_combined_loss = float(g_loss + d_loss)
+        
+        if current_combined_loss < best_combined_loss - 0.01:
+            best_combined_loss = current_combined_loss
+            patience_counter = 0
+            best_generator_weights = generator.get_weights()
+        else:
+            patience_counter += 1
+        
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch}, D Loss: {d_loss:.4f}, G Loss: {g_loss:.4f}")
+        
+        # Early Stopping条件をチェック
+        if patience_counter >= 50:
+            print(f"\nEarly stopping triggered at epoch {epoch}")
+            print(f"Best combined loss: {best_combined_loss:.4f}")
+            generator.set_weights(best_generator_weights)
+            break
+        
+        # Mode collapseの検出
+        if float(d_loss) < 0.1 or float(g_loss) > 2.0:
             print(f"\nPossible mode collapse detected at epoch {epoch}")
             print(f"Reverting to best weights")
             generator.set_weights(best_generator_weights)
@@ -308,7 +457,6 @@ def oversample_extreme_values_2d(X, y, epochs=100, batch_size=32, latent_dim=100
     return X_balanced, y_balanced
 
 
-
 def plot_training_history(history, model_type, save_dir):
     plt.figure(figsize=(10, 4))
     plt.plot(history.history['loss'], label='Training Loss')
@@ -330,10 +478,10 @@ if __name__ == "__main__":
 
     
     # データセット作成
-    X, y = make_temporal_dataset_2d(
+    X, y = make_temporal_dataset_1d(
         person_ids=person_ids, 
-        window_sec=10, 
-        step_sec=10,
+        window_sec=5, 
+        step_sec=5,
         relative=False, 
         selected_channels=selected_channels,
         log_transform=True,
@@ -350,7 +498,7 @@ if __name__ == "__main__":
     )
 
     #X_train, y_train = oversample_extreme_values(X_train, y_train, threshold=0, multiplier=5, noise_scale=1)
-    #X_train, y_train = oversample_extreme_values(X_train, y_train)
+    X_train, y_train = oversample_extreme_values_1D(X_train, y_train)
 
     # スケーリング
     scaler = StandardScaler()
@@ -362,7 +510,7 @@ if __name__ == "__main__":
     X_test = scaler.transform(X_test.reshape(X_test.shape[0], -1)).reshape(X_test.shape)
 
     # 検証データの保存
-    save_dir = './results/32ch_2DCNN_gauss_temp4/validation_data'
+    save_dir = './results/32ch_1DCNN_gauss_temp/validation_data'
     os.makedirs(save_dir, exist_ok=True)
     
     np.save(os.path.join(save_dir, f'X_val_neuron{n_neurons}_sigma{sigma}.npy'), X_val)
@@ -371,7 +519,7 @@ if __name__ == "__main__":
     # コールバックの設定
     callbacks = [
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, verbose=1),
-        EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     ]
 
     # Valenceモデルの学習
@@ -389,7 +537,7 @@ if __name__ == "__main__":
     # コールバックの設定
     callbacks = [
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-6, verbose=1),
-        EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True, verbose=1)
+        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True, verbose=1)
     ]
 
     # Arousalモデルの学習
@@ -433,12 +581,12 @@ if __name__ == "__main__":
     plt.axis([-1, 1, -1, 1])
 
     plt.tight_layout()
-    plt.savefig(f'./results/32ch_2DCNN_gauss_temp4/residual/neuron{n_neurons}_sigma{sigma}_residual_plots.png')
+    plt.savefig(f'./results/32ch_1DCNN_gauss_temp/residual/neuron{n_neurons}_sigma{sigma}_residual_plots.png')
     plt.close()
 
     # モデルの保存
-    valence_model.save(f'./results/32ch_2DCNN_gauss_temp4/models/neuron{n_neurons}_sigma{sigma}_valence_model.keras')
-    arousal_model.save(f'./results/32ch_2DCNN_gauss_temp4/models/neuron{n_neurons}_sigma{sigma}_arousal_model.keras')
+    valence_model.save(f'./results/32ch_1DCNN_gauss_temp/models/neuron{n_neurons}_sigma{sigma}_valence_model.keras')
+    arousal_model.save(f'./results/32ch_1DCNN_gauss_temp/models/neuron{n_neurons}_sigma{sigma}_arousal_model.keras')
 
     # 結果をDataFrameに保存
     results_df = pd.DataFrame({
@@ -458,7 +606,7 @@ if __name__ == "__main__":
     })
 
     # 結果の保存
-    results_df.to_csv(f'./results/32ch_2DCNN_gauss_temp4/evaluation/neuron{n_neurons}_sigma{sigma}_results.csv', index=False)
+    results_df.to_csv(f'./results/32ch_1DCNN_gauss_temp/evaluation/neuron{n_neurons}_sigma{sigma}_results.csv', index=False)
 
     # 結果の出力
     print("\n=== Final Results ===")
@@ -472,8 +620,8 @@ if __name__ == "__main__":
 
     print("\nTraining and evaluation completed.")
 
-    plot_training_history(valence_history, 'Valence', './results/32ch_2DCNN_gauss_temp4')
-    plot_training_history(arousal_history, 'Arousal', './results/32ch_2DCNN_gauss_temp4')
+    plot_training_history(valence_history, 'Valence', './results/32ch_1DCNN_gauss_temp')
+    plot_training_history(arousal_history, 'Arousal', './results/32ch_1DCNN_gauss_temp')
     # 検証データの保存
     np.save('./data/X_val.npy', X_val)
     np.save('./data/y_val.npy', y_val)

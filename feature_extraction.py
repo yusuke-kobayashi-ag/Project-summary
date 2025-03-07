@@ -449,7 +449,7 @@ def extract_band_powers_for_2D_2ch(eeg_data, fs=128, window_sec=10, relative=Fal
     return combined_features
 
 @cache_features
-def extract_temporal_band_powers(eeg_data, fs=128, window_sec=2, step_sec=1, relative=False, noverlap=None):
+def extract_temporal_band_powers_2d(eeg_data, fs=128, window_sec=2, step_sec=1, relative=False, noverlap=None):
     """
     時系列を考慮した特徴量抽出
     Returns: (n_trials, n_timesteps, n_bands, n_channels, n_views)
@@ -512,6 +512,72 @@ def extract_temporal_band_powers(eeg_data, fs=128, window_sec=2, step_sec=1, rel
     
     return features
 
+@cache_features
+def extract_temporal_band_powers_1d(eeg_data, fs=128, window_sec=2, step_sec=1, relative=False, noverlap=None):
+    """
+    時系列を考慮した特徴量抽出（1D形式）
+    Returns: (n_trials, n_timesteps, features)
+    
+    Parameters:
+    -----------
+    eeg_data : numpy.ndarray
+        入力EEGデータ (n_trials, n_channels, n_samples)
+    fs : int
+        サンプリング周波数
+    window_sec : float
+        各時間窓の長さ（秒）
+    step_sec : float
+        時間窓のスライド幅（秒）
+    relative : bool
+        相対パワーを計算するかどうか
+    noverlap : int
+        バンドパワー計算時のオーバーラップ
+    """
+    bands = FREQUENCY_BANDS
+    
+    # 時間窓のサンプル数を計算
+    window_samples = int(window_sec * fs)
+    step_samples = int(step_sec * fs)
+    
+    all_trial_features = []
+    
+    for trial in tqdm(eeg_data, desc="Processing trials"):
+        trial_length = trial.shape[1]
+        n_steps = (trial_length - window_samples) // step_samples + 1
+        
+        timestep_features = []
+        for step in range(n_steps):
+            start_idx = step * step_samples
+            end_idx = start_idx + window_samples
+            
+            if end_idx > trial_length:
+                break
+                
+            window = trial[:, start_idx:end_idx]
+            
+            # 各時間窓での特徴量を1次元に
+            window_features = []
+            for band_name, band_range in bands.items():
+                for ch in range(trial.shape[0]):
+                    power = bandpower(window[ch], fs, band_range,
+                                   window_sec=window_sec,
+                                   relative=relative,
+                                   noverlap=noverlap)
+                    window_features.append(power)
+            
+            timestep_features.append(window_features)
+        
+        all_trial_features.append(timestep_features)
+    
+    # (n_trials, n_timesteps, n_features)の形状に変換
+    features = np.array(all_trial_features)
+    features = np.array(all_trial_features)[..., np.newaxis]
+    
+    print(f"Feature shape: {features.shape}")  # 形状の確認
+    # features.shape は (n_trials, n_timesteps, n_bands * n_channels) となる
+    
+    return features
+
 
 def convert_log_features(features):
     """
@@ -527,17 +593,5 @@ def convert_log_features(features):
     numpy.ndarray
         変換後の特徴量
     """
-    # 0値のマスクを作成
-    zero_mask = (features == 0)
-    
-    # 非0値のみlog変換
-    log_features = np.zeros_like(features)
-    log_features[~zero_mask] = np.log(features[~zero_mask])
-    
-    print("Log変換後の特徴量の統計:")
-    print(f"0値の数: {zero_mask.sum()}")
-    print(f"非0値の数: {(~zero_mask).sum()}")
-    print(f"Min (非0値): {log_features[~zero_mask].min():.2f}")
-    print(f"Max (非0値): {log_features[~zero_mask].max():.2f}")
-    
+    log_features = np.log(features)
     return log_features

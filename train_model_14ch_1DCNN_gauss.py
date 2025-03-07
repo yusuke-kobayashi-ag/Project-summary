@@ -43,9 +43,10 @@ def create_model(input_shape, sigma):
     
     x = layers.Flatten()(x)
     x = layers.Dense(128, activation="tanh")(x)
-    x = layers.Dropout(0.3)(x)
+    #x = layers.Dropout(0.1)(x)
     x = layers.Dense(64, activation="tanh")(x)
-    x = layers.Dropout(0.3)(x)
+    #x = layers.Dropout(0.1)(x)
+
     output = layers.Dense(n_neurons, activation='softmax')(x)
     
     model = models.Model(inputs=inputs, outputs=output)
@@ -94,7 +95,7 @@ def evaluate_regression(y_true, y_pred):
     r2 = r2_score(y_true, y_pred)
     return {'MSE': mse, 'RMSE': rmse, 'MAE': mae, 'R^2': r2}
 
-def oversample_extreme_values(X, y, threshold=0.7, multiplier=3, noise_level=0.01):
+def oversample_extreme_values(X, y, threshold=0.7, multiplier=10, noise_level=0.01):
     extreme_indices_valence = np.where(np.abs(y[:, 0]) >= threshold)[0]
     extreme_indices_arousal = np.where(np.abs(y[:, 1]) >= threshold)[0]
     extreme_indices = np.unique(np.concatenate([extreme_indices_valence, extreme_indices_arousal]))
@@ -137,7 +138,7 @@ def plot_training_history(history, model_type, save_dir):
 if __name__ == "__main__":
     # データの準備
     person_ids = range(1,33)
-    selected_channels = ['Fp1','Fp2']
+    selected_channels = ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4']
     X, y = make_data_set(
         person_ids=person_ids, 
         model_type='1DCNN',
@@ -159,12 +160,8 @@ if __name__ == "__main__":
     print("Xの最小値:", np.min(X), "Xの最大値", np.max(X), "Xの平均", np.mean(X))
 
     # データの分割
-    X_temp, X_test, y_temp, y_test = train_test_split(
-        X, y, test_size=0.1, random_state=7
-    )
-
     X_train, X_val, y_train, y_val = train_test_split(
-        X_temp, y_temp, test_size=0.1, random_state=7
+        X, y, test_size=0.1, random_state=777
     )
 
     # 訓練データのみでスケーラーを学習
@@ -172,28 +169,23 @@ if __name__ == "__main__":
     X_train_reshaped = X_train.reshape(X_train.shape[0], -1)
     scaler.fit(X_train_reshaped)
 
-    # 訓練データとテストデータそれぞれを変換
+    # 訓練データと検証データそれぞれを変換
     X_train_scaled = scaler.transform(X_train_reshaped)
     X_val_scaled = scaler.transform(X_val.reshape(X_val.shape[0], -1))
-    X_test_scaled = scaler.transform(X_test.reshape(X_test.shape[0], -1))
 
     # 元の形状に戻す
     X_train = X_train_scaled.reshape(X_train.shape)
     X_val = X_val_scaled.reshape(X_val.shape)
-    X_test = X_test_scaled.reshape(X_test.shape)
 
-    # オーバーサンプリング
-    #X_train, y_train = oversample_extreme_values(X_train, y_train, threshold=0.7, multiplier=2)
-
-    # データ分布の可視化
+    # データ分布の可視化（検証データを使用）
     plt.figure(figsize=(8, 8))
-    plt.scatter(y_train[:, 0], y_train[:, 1], alpha=0.5)
+    plt.scatter(y_val[:, 0], y_val[:, 1], alpha=0.5)
     plt.xlabel('Valence')
     plt.ylabel('Arousal')
-    plt.title('Data Distribution')
+    plt.title('Validation Data Distribution')
     plt.grid(True)
     plt.axis([-1, 1, -1, 1])
-    plt.savefig('./results/14ch_1DCNN_gauss/distributions/data_distribution.png')
+    plt.savefig('./results/14ch_1DCNN_gauss/distributions/validation_data_distribution.png')
     plt.close()
 
     # モデルの作成
@@ -217,12 +209,6 @@ if __name__ == "__main__":
         verbose=1
     )
 
-    # コールバックの設定
-    callbacks = [
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=30, min_lr=1e-6, verbose=1),
-        EarlyStopping(monitor='val_loss', patience=80, restore_best_weights=True, verbose=1)
-    ]
-
     # Arousalモデルの学習
     arousal_history = arousal_model.fit(
         X_train, y_train[:, 1],
@@ -233,39 +219,39 @@ if __name__ == "__main__":
         verbose=1
     )
 
-    # 予測と評価
-    valence_pred_dist = valence_model.predict(X_test)
-    arousal_pred_dist = arousal_model.predict(X_test)
+    # 予測と評価（検証データを使用）
+    valence_pred_dist = valence_model.predict(X_val)
+    arousal_pred_dist = arousal_model.predict(X_val)
 
     valence_predictions = decode_prediction(valence_pred_dist)
     arousal_predictions = decode_prediction(arousal_pred_dist)
 
-    valence_results = evaluate_regression(y_test[:, 0], valence_predictions)
-    arousal_results = evaluate_regression(y_test[:, 1], arousal_predictions)
+    valence_results = evaluate_regression(y_val[:, 0], valence_predictions)
+    arousal_results = evaluate_regression(y_val[:, 1], arousal_predictions)
 
-    # 残差プロット
+    # 残差プロット（検証データを使用）
     plt.figure(figsize=(10, 5))
     
     plt.subplot(1, 2, 1)
-    plt.scatter(y_test[:, 0], valence_predictions, alpha=0.5)
+    plt.scatter(y_val[:, 0], valence_predictions, alpha=0.5)
     plt.plot([-1, 1], [-1, 1], 'r--')
     plt.xlabel('True Valence')
     plt.ylabel('Predicted Valence')
-    plt.title('Valence: True vs Predicted')
+    plt.title('Valence: True vs Predicted (Validation)')
     plt.grid(True, alpha=0.3)
     plt.axis([-1, 1, -1, 1])
 
     plt.subplot(1, 2, 2)
-    plt.scatter(y_test[:, 1], arousal_predictions, alpha=0.5)
+    plt.scatter(y_val[:, 1], arousal_predictions, alpha=0.5)
     plt.plot([-1, 1], [-1, 1], 'r--')
     plt.xlabel('True Arousal')
     plt.ylabel('Predicted Arousal')
-    plt.title('Arousal: True vs Predicted')
+    plt.title('Arousal: True vs Predicted (Validation)')
     plt.grid(True, alpha=0.3)
     plt.axis([-1, 1, -1, 1])
 
     plt.tight_layout()
-    plt.savefig(f'./results/14ch_1DCNN_gauss/residual/neuron{n_neurons}_sigma{sigma}_residual_plots.png')
+    plt.savefig(f'./results/14ch_1DCNN_gauss/residual/neuron{n_neurons}_sigma{sigma}_validation_residual_plots.png')
     plt.close()
 
     # モデルの保存
