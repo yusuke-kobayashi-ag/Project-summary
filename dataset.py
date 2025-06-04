@@ -1,6 +1,6 @@
 import numpy as np
 import os
-from load_data import load_deap_data_npy
+from load_data import load_deap_data_npy, load_deap_data_dat
 from feature_extraction import (
     extract_band_powers_for_1D,
     extract_band_powers_for_2D_14ch,
@@ -14,7 +14,9 @@ from feature_extraction import (
 )
 from feature_extraction import FREQUENCY_BANDS
 
-def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, window_sec=10, relative=False, noverlap=None, selected_channels=None,use_segments=False, overlap_sec=5, plot_distributions=True, gauss=False,clipping=False):
+def make_data_set(person_ids, model_type='1DCNN', log_transform=False, fs=128, window_sec=10, relative=False, 
+                  noverlap=None, selected_channels=None, use_segments=False, overlap_sec=5, 
+                  plot_distributions=True, gauss=False, clipping=False, data_format='npy'):
     """
     データセットを作成する関数
     
@@ -24,8 +26,6 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
         処理する被験者のID
     model_type : str
         '1DCNN' または '2DCNN'
-    standardize : bool
-        特徴量を標準化するかどうか
     log_transform : bool
         特徴量に対数変換を適用するかどうか
     fs : int
@@ -42,21 +42,35 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
         セグメント化処理を使用するかどうか
     overlap_sec : int
         セグメント化時のオーバーラップ（秒）
+    data_format : str
+        'npy'または'dat'。データファイルの形式を指定
     """
     # データの読み込み
-    file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+    if data_format == 'npy':
+        file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+        load_func = load_deap_data_npy
+    elif data_format == 'dat':
+        file_paths = [f'data/data_preprocessed_python/s{str(i).zfill(2)}.dat' for i in person_ids]
+        load_func = load_deap_data_dat
+    else:
+        raise ValueError("data_formatは'npy'または'dat'である必要があります")
+
     X_all = []
     y_all = []
 
     for file_path in file_paths:
         print(f'{file_path}を処理中...')
-        X, y, channels = load_deap_data_npy(file_path, selected_channels=selected_channels)
+        X, y, channels = load_func(file_path, selected_channels=selected_channels)
         X_all.append(X)
         y_all.append(y)
 
     X_combined = np.concatenate(X_all, axis=0)
     y_combined = np.concatenate(y_all, axis=0)
-    y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    
+    if data_format == 'npy':
+        y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    else:  # datの場合は既に[-1,1]のスケール
+        y_combined = y_combined[:, :2]  # valenceとarousalのみを使用
 
     # 周波数帯域の分析を実行
     print("周波数帯域の分析を実行中...")
@@ -132,7 +146,8 @@ def make_data_set(person_ids, model_type='1DCNN',  log_transform=False, fs=128, 
     return band_power_features, y_combined
 
 def make_temporal_dataset_2d(person_ids, window_sec=2, step_sec=1, fs=128, relative=False, 
-                         selected_channels=None, log_transform=True, plot_distributions=True):
+                         selected_channels=None, log_transform=True, plot_distributions=True,
+                         data_format='npy'):
     """
     時系列モデル用のデータセット作成関数
     
@@ -154,28 +169,35 @@ def make_temporal_dataset_2d(person_ids, window_sec=2, step_sec=1, fs=128, relat
         特徴量に対数変換を適用するかどうか
     plot_distributions : bool
         特徴量の分布を可視化するかどうか
-    
-    Returns:
-    --------
-    features : ndarray
-        形状: (n_trials, n_timesteps, n_bands, n_channels, n_views)
-    labels : ndarray
-        形状: (n_trials, 2) [valence, arousal]
+    data_format : str
+        'npy'または'dat'。データファイルの形式を指定
     """
     # データの読み込み
-    file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+    if data_format == 'npy':
+        file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+        load_func = load_deap_data_npy
+    elif data_format == 'dat':
+        file_paths = [f'data/data_original/s{str(i).zfill(2)}.dat' for i in person_ids]
+        load_func = load_deap_data_dat
+    else:
+        raise ValueError("data_formatは'npy'または'dat'である必要があります")
+
     X_all = []
     y_all = []
 
     for file_path in file_paths:
         print(f'{file_path}を処理中...')
-        X, y, channels = load_deap_data_npy(file_path, selected_channels=selected_channels)
+        X, y, channels = load_func(file_path, selected_channels=selected_channels)
         X_all.append(X)
         y_all.append(y)
 
     X_combined = np.concatenate(X_all, axis=0)
     y_combined = np.concatenate(y_all, axis=0)
-    y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    
+    if data_format == 'npy':
+        y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    else:  # datの場合は既に[-1,1]のスケール
+        y_combined = y_combined[:, :2]  # valenceとarousalのみを使用
 
     # 時系列特徴量の抽出
     print("時系列特徴量の抽出中...")
@@ -208,7 +230,8 @@ def make_temporal_dataset_2d(person_ids, window_sec=2, step_sec=1, fs=128, relat
     return features, y_combined
 
 def make_temporal_dataset_1d(person_ids, window_sec=2, step_sec=1, fs=128, relative=False, 
-                         selected_channels=None, log_transform=True, plot_distributions=True):
+                         selected_channels=None, log_transform=True, plot_distributions=True,
+                         data_format='npy'):
     """
     時系列モデル用のデータセット作成関数
     
@@ -230,28 +253,35 @@ def make_temporal_dataset_1d(person_ids, window_sec=2, step_sec=1, fs=128, relat
         特徴量に対数変換を適用するかどうか
     plot_distributions : bool
         特徴量の分布を可視化するかどうか
-    
-    Returns:
-    --------
-    features : ndarray
-        形状: (n_trials, n_timesteps, n_bands, n_channels, n_views)
-    labels : ndarray
-        形状: (n_trials, 2) [valence, arousal]
+    data_format : str
+        'npy'または'dat'。データファイルの形式を指定
     """
     # データの読み込み
-    file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+    if data_format == 'npy':
+        file_paths = [f'data/data_raw_preprocessed/s{str(i).zfill(2)}.npy' for i in person_ids]
+        load_func = load_deap_data_npy
+    elif data_format == 'dat':
+        file_paths = [f'data/data_original/s{str(i).zfill(2)}.dat' for i in person_ids]
+        load_func = load_deap_data_dat
+    else:
+        raise ValueError("data_formatは'npy'または'dat'である必要があります")
+
     X_all = []
     y_all = []
 
     for file_path in file_paths:
         print(f'{file_path}を処理中...')
-        X, y, channels = load_deap_data_npy(file_path, selected_channels=selected_channels)
+        X, y, channels = load_func(file_path, selected_channels=selected_channels)
         X_all.append(X)
         y_all.append(y)
 
     X_combined = np.concatenate(X_all, axis=0)
     y_combined = np.concatenate(y_all, axis=0)
-    y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    
+    if data_format == 'npy':
+        y_combined = 2 * ((y_combined - 1)/8) - 1  # スケール変換 [1,9] -> [-1,1]
+    else:  # datの場合は既に[-1,1]のスケール
+        y_combined = y_combined[:, :2]  # valenceとarousalのみを使用
 
     # 時系列特徴量の抽出
     print("時系列特徴量の抽出中...")

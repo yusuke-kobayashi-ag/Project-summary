@@ -13,7 +13,7 @@ def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
     Parameters:
     -----------
     preprocessing : str
-        'eeg': EEG標準的な前処理（試行ごとのベースライン補正とDCオフセット除去）
+        'eeg': EEG標準のな前処理（試行ごとのベースライン補正とDCオフセット除去）
         'none': 前処理なし
     """
     # DEAPデータセットのチャンネル順序
@@ -76,7 +76,53 @@ def load_deap_data_npy(file_path, selected_channels=None, preprocessing='eeg'):
     
     return selected_data, labels, channel_info_dict
 
-
+def load_deap_data_dat(file_path, selected_channels=None):
+    """
+    DEAPデータセットの.datファイルを読み込む関数
+    
+    Parameters:
+    -----------
+    file_path : str
+        .datファイルのパス
+    selected_channels : list or None
+        使用するチャンネルのリスト。Noneの場合は32チャンネル全て使用
+    
+    Returns:
+    --------
+    X : ndarray
+        脳波データ。形状: (n_trials, n_channels, n_samples)
+    y : ndarray
+        感情ラベル。形状: (n_trials, 4) [valence, arousal, dominance, liking]
+    channels : list
+        使用されたチャンネルのリスト
+    """
+    # .datファイルの読み込み
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f, encoding='latin1')
+    
+    # データとラベルの取得
+    X = data['data']  # (40, 40, 8064) - (trial, channel, data)
+    y = data['labels']  # (40, 4) - (trial, label)
+    
+    # チャンネル情報の取得（32チャンネルのEEGデータのみを使用）
+    channels = ['Fp1', 'AF3', 'F3', 'F7', 'FC5', 'FC1', 'C3', 'T7', 
+                'CP5', 'CP1', 'P3', 'P7', 'PO3', 'O1', 'Oz', 'Pz',
+                'Fp2', 'AF4', 'Fz', 'F4', 'F8', 'FC6', 'FC2', 'Cz',
+                'C4', 'T8', 'CP6', 'CP2', 'P4', 'P8', 'PO4', 'O2']
+    
+    # EEGチャンネルのみを選択（最初の32チャンネル）
+    X = X[:, :32, :]
+    
+    if selected_channels is not None:
+        # 選択されたチャンネルのインデックスを取得
+        channel_indices = [channels.index(ch) for ch in selected_channels]
+        X = X[:, channel_indices, :]
+        channels = selected_channels
+    
+    # (n_trials, n_channels, n_samples)の形状に変換
+    X = np.transpose(X, (0, 1, 2))
+    
+    return X, y, channels
 
 if __name__ == "__main__":
     # テスト用のファイルパス
